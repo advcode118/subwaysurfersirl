@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Three looks</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1a17; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .bar {
+    position: fixed; left: 28px; bottom: 22px; right: 28px;
+    display: flex; align-items: flex-end; gap: 28px;
+    color: #f4efe6; font-family: "Palatino Linotype", Palatino, Georgia, serif;
+    pointer-events: none;
+  }
+  button {
+    pointer-events: auto;
+    appearance: none; background: none; border: 0; padding: 0 0 4px;
+    color: inherit; font: inherit; font-size: 22px; cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  button[aria-pressed="true"] { border-bottom-color: currentColor; }
+  button:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+  #note {
+    margin: 0 0 6px auto; max-width: 34rem;
+    font-family: "Segoe UI", sans-serif; font-size: 14px; line-height: 1.4;
+    text-align: right;
+  }
+  body[data-scene="planet"] .bar { color: #2a3330; font-family: Candara, "Segoe UI", sans-serif; }
+  body[data-scene="river"] .bar { color: #f3e7c4; }
+</style>
+</head>
+<body data-scene="origami">
+<canvas id="c"></canvas>
+<div class="bar">
+  <button type="button" data-scene="origami" aria-pressed="true">Origami</button>
+  <button type="button" data-scene="planet">Planet</button>
+  <button type="button" data-scene="river">River</button>
+  <p id="note"></p>
+</div>
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const note = document.getElementById("note");
+const notes = {
+  origami: "Paper, creases, and a desk shadow. Flat drawing is enough to keep this look.",
+  planet: "A real sphere and a soft glow. This look wants a small WebGL view in the app.",
+  river: "Painted light on water. This look fits the window you already have."
+};
+let scene = "origami";
+let lane = 0;
+let lanePos = 0;
+let jump = 0;
+let duck = 0;
+let hold = 0;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function resize() {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(innerWidth * dpr);
+  canvas.height = Math.floor(innerHeight * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener("resize", resize);
+resize();
+
+document.querySelectorAll("button").forEach((button) => {
+  button.addEventListener("click", () => setScene(button.dataset.scene));
+});
+addEventListener("keydown", (event) => {
+  if (event.key === "1") setScene("origami");
+  if (event.key === "2") setScene("planet");
+  if (event.key === "3") setScene("river");
+  if (event.key === "ArrowLeft") { lane = Math.max(-1, lane - 1); hold = 3.2; }
+  if (event.key === "ArrowRight") { lane = Math.min(1, lane + 1); hold = 3.2; }
+  if (event.key === "ArrowUp") { jump = 1; hold = 3.2; }
+  if (event.key === "ArrowDown") { duck = 1; hold = 3.2; }
+});
+addEventListener("keyup", (event) => {
+  if (event.key === "ArrowDown") duck = 0;
+});
+
+function setScene(next) {
+  scene = next;
+  document.body.dataset.scene = next;
+  document.querySelectorAll("button").forEach((button) => {
+    button.setAttribute("aria-pressed", button.dataset.scene === next ? "true" : "false");
+  });
+  note.textContent = notes[next];
+}
+setScene("origami");
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (t) => { const s = clamp(t, 0, 1); return s * s * (3 - 2 * s); };
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.033, (now - last) / 1000);
+  last = now;
+  const t = now / 1000;
+  if (hold > 0) hold -= dt;
+  else if (!reduce) {
+    lane = [0, 1, 1, -1, 0, 0][Math.floor(t / 1.7) % 6];
+    const cycle = t % 6.6;
+    if (cycle > 4.7 && cycle < 4.85) jump = 1;
+    duck = cycle > 2.3 && cycle < 3.4 ? 1 : 0;
+  }
+  if (jump > 0) jump = Math.max(0, jump - dt * 0.85);
+  lanePos = lerp(lanePos, lane, 1 - Math.pow(0.0015, dt));
+  const w = innerWidth;
+  const h = innerHeight;
+  ctx.clearRect(0, 0, w, h);
+  if (scene === "origami") drawOrigami(t, w, h);
+  else if (scene === "planet") drawPlanet(t, w, h);
+  else drawRiver(t, w, h);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+function drawOrigami(t, w, h) {
+  const desk = ctx.createLinearGradient(0, 0, 0, h);
+  desk.addColorStop(0, "#d4cec4");
+  desk.addColorStop(1, "#b7b1a6");
+  ctx.fillStyle = desk;
+  ctx.fillRect(0, 0, w, h);
+
+  const foldOf = (z) => smooth((z - 0.14) / 0.18) * (1 - smooth((z - 0.76) / 0.16));
+  const road = (z, x) => {
+    const depth = Math.pow(z, 0.82);
+    const s = lerp(0.28, 1, depth);
+    return { x: w / 2 + x * w * 0.2 * s, y: lerp(h * 0.18, h * 0.86, depth), s };
+  };
+  const liftOf = (z) => lerp(10, h * 0.2, road(z, 0).s) * foldOf(z);
+
+  ctx.save();
+  ctx.filter = "blur(16px)";
+  ctx.fillStyle = "rgba(70, 60, 48, 0.18)";
+  ctx.beginPath();
+  ctx.ellipse(w / 2 + 24, h * 0.78, w * 0.3, h * 0.045, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const slices = 26;
+  for (let i = 0; i < slices; i++) {
+    const z0 = i / slices;
+    const z1 = (i + 1) / slices;
+    const a = road(z0, -1.5);
+    const b = road(z0, 1.5);
+    const c = road(z1, 1.5);
+    const d = road(z1, -1.5);
+    const f = (foldOf(z0) + foldOf(z1)) / 2;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y - liftOf(z0));
+    ctx.lineTo(b.x, b.y - liftOf(z0));
+    ctx.lineTo(c.x, c.y - liftOf(z1));
+    ctx.lineTo(d.x, d.y - liftOf(z1));
+    ctx.closePath();
+    const shade = f > 0.35 ? 246 - i * 0.4 : 232;
+    ctx.fillStyle = `rgb(${shade} ${shade - 8} ${shade - 22})`;
+    ctx.fill();
+    if (f > 0.45) {
+      ctx.fillStyle = "rgba(120, 96, 70, 0.05)";
+      ctx.fill();
+    }
+  }
+
+  ctx.lineWidth = 1.25;
+  ctx.strokeStyle = "rgba(90, 72, 54, 0.35)";
+  for (const edge of [-0.5, 0.5]) {
+    ctx.beginPath();
+    for (let i = 0; i <= 40; i++) {
+      const z = 0.18 + (i / 40) * 0.64;
+      const p = road(z, edge);
+      const y = p.y - liftOf(z);
+      if (i === 0) ctx.moveTo(p.x, y);
+      else ctx.lineTo(p.x, y);
+    }
+    ctx.stroke();
+  }
+  for (const z of [0.27, 0.8]) {
+    const left = road(z, -1.5);
+    const right = road(z, 1.5);
+    ctx.strokeStyle = "rgba(255, 250, 242, 0.95)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(left.x, left.y - liftOf(z));
+    ctx.lineTo(right.x, right.y - liftOf(z));
+    ctx.stroke();
+  }
+
+  const pieces = [
+    { z: (t * 0.13 + 0.15) % 1, lane: -1, kind: "arch" },
+    { z: (t * 0.13 + 0.42) % 1, lane: 0, kind: "tab" },
+    { z: (t * 0.13 + 0.7) % 1, lane: 1, kind: "tab" }
+  ].filter((item) => item.z > 0.22 && item.z < 0.74).sort((a, b) => a.z - b.z);
+  for (const item of pieces) {
+    const p = road(item.z, item.lane);
+    paperObstacle(p.x, p.y - liftOf(item.z) * 0.15, lerp(28, 92, p.s) * (0.45 + foldOf(item.z)), p.s, item.kind);
+  }
+
+  const player = road(0.68, lanePos);
+  const hop = Math.sin(clamp(jump, 0, 1) * Math.PI) * player.s * 78;
+  crane(player.x, player.y - liftOf(0.68) * 0.05 - hop, player.s, lane - lanePos, duck > 0.2);
+}
+
+function paperObstacle(x, y, height, s, kind) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = "rgba(70, 58, 46, 0.14)";
+  ctx.beginPath();
+  ctx.ellipse(10, 8, 34 * s, 8 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "#2c2824";
+  if (kind === "tab") {
+    ctx.fillStyle = "#fbf7ef";
+    ctx.beginPath();
+    ctx.moveTo(-26 * s, 0);
+    ctx.lineTo(0, -height);
+    ctx.lineTo(26 * s, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(186, 158, 124, 0.35)";
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -height);
+    ctx.lineTo(26 * s, 0);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -height);
+    ctx.strokeStyle = "rgba(120, 98, 76, 0.55)";
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = "#f7f1e6";
+    ctx.beginPath();
+    ctx.moveTo(-34 * s, 0);
+    ctx.quadraticCurveTo(-34 * s, -height, 0, -height);
+    ctx.quadraticCurveTo(34 * s, -height, 34 * s, 0);
+    ctx.quadraticCurveTo(0, -height * 0.45, -34 * s, 0);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function crane(x, y, s, flick, crouched) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s * 2.5, s * 2.5 * (crouched ? 0.62 : 1));
+  ctx.rotate(flick * 0.55);
+  ctx.fillStyle = "#fbf8f2";
+  ctx.strokeStyle = "#2a2622";
+  ctx.lineWidth = 1.5;
+  const flap = flick * 18;
+  ctx.beginPath();
+  ctx.moveTo(-4, -2);
+  ctx.lineTo(-46, -8 - flap);
+  ctx.lineTo(-18, 8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(2, -4);
+  ctx.lineTo(36, -16 + flap * 0.3);
+  ctx.lineTo(10, 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-6, 6);
+  ctx.lineTo(0, -16);
+  ctx.lineTo(12, -8);
+  ctx.lineTo(4, 10);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(4, -12);
+  ctx.quadraticCurveTo(24, -36, 30, -14);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(26, -18);
+  ctx.lineTo(36, -22);
+  ctx.lineTo(24, -12);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(150, 126, 98, 0.8)";
+  ctx.beginPath();
+  ctx.moveTo(-2, 2);
+  ctx.lineTo(4, -12);
+  ctx.stroke();
+  ctx.fillStyle = "#c4372f";
+  ctx.fillRect(-1, -6, 6, 6);
+  ctx.restore();
+}
+
+function drawPlanet(t, w, h) {
+  const sky = ctx.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, "#f7c7b4");
+  sky.addColorStop(0.55, "#f8e7c8");
+  sky.addColorStop(1, "#d7f3ea");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+  ctx.save();
+  ctx.filter = "blur(26px)";
+  ctx.fillStyle = "rgba(255, 236, 190, 0.95)";
+  ctx.beginPath();
+  ctx.arc(w * 0.8, h * 0.16, 48, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = "#fff6dc";
+  ctx.beginPath();
+  ctx.arc(w * 0.8, h * 0.16, 15, 0, Math.PI * 2);
+  ctx.fill();
+
+  const cx = w / 2;
+  const cy = h * 0.6;
+  const R = Math.min(w, h) * 0.34;
+  ctx.save();
+  ctx.filter = "blur(20px)";
+  ctx.strokeStyle = "rgba(255, 214, 176, 0.7)";
+  ctx.lineWidth = 26;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R + 8, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  const globe = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.1, cx, cy, R);
+  globe.addColorStop(0, "#d7f5cf");
+  globe.addColorStop(0.45, "#8ed29a");
+  globe.addColorStop(1, "#4e8d60");
+  ctx.fillStyle = globe;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.clip();
+  for (let i = -4; i <= 4; i++) {
+    const yy = cy + Math.sin(i * 0.32) * R * 0.72;
+    const half = Math.sqrt(Math.max(0, R * R - (yy - cy) * (yy - cy)));
+    ctx.fillStyle = i % 2 ? "rgba(255,255,255,0.1)" : "rgba(40, 90, 55, 0.08)";
+    ctx.beginPath();
+    ctx.ellipse(cx, yy, half, R * 0.065, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  function onSphere(u, laneOffset, lift = 0) {
+    const theta = 0.35 + u * 1.25;
+    const spread = Math.sin(theta);
+    return {
+      x: cx + laneOffset * spread * R * 0.46,
+      y: cy - Math.cos(theta) * R * 0.9 - lift,
+      s: 0.45 + spread,
+      front: spread
+    };
+  }
+
+  for (const side of [-1, 0, 1]) {
+    ctx.beginPath();
+    for (let i = 0; i <= 28; i++) {
+      const p = onSphere(i / 28, side);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = side === 0 ? "rgba(245, 222, 186, 0.95)" : "rgba(255,255,255,0.45)";
+    ctx.lineWidth = side === 0 ? 8 : 3;
+    ctx.lineCap = "round";
+    ctx.stroke();
+  }
+
+  const props = [];
+  for (let i = 0; i < 6; i++) {
+    props.push({
+      u: (i / 6 + t * 0.07) % 1,
+      lane: (i % 3) - 1,
+      kind: i % 2 ? "tree" : "rock"
+    });
+  }
+  props.sort((a, b) => a.u - b.u);
+  for (const prop of props) {
+    const p = onSphere(prop.u, prop.lane);
+    if (prop.kind === "tree") tree(p.x, p.y, p.s);
+    else rock(p.x, p.y, p.s);
+  }
+  const hop = Math.sin(clamp(jump, 0, 1) * Math.PI) * 36;
+  const feet = onSphere(0.82, lanePos, hop);
+  traveler(feet.x, feet.y, feet.s * 1.7, lane - lanePos, duck > 0.2);
+}
+
+function tree(x, y, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ctx.fillStyle = "#2c6844";
+  ctx.beginPath();
+  ctx.moveTo(0, -42);
+  ctx.lineTo(16, -6);
+  ctx.lineTo(-16, -6);
+  ctx.fill();
+  ctx.fillStyle = "#49a068";
+  ctx.beginPath();
+  ctx.moveTo(2, -30);
+  ctx.lineTo(14, -8);
+  ctx.lineTo(-6, -8);
+  ctx.fill();
+  ctx.restore();
+}
+
+function rock(x, y, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ctx.fillStyle = "#e39a86";
+  ctx.beginPath();
+  ctx.moveTo(-16, 2);
+  ctx.lineTo(-6, -16);
+  ctx.lineTo(14, -10);
+  ctx.lineTo(16, 2);
+  ctx.fill();
+  ctx.fillStyle = "#c97868";
+  ctx.beginPath();
+  ctx.moveTo(0, -6);
+  ctx.lineTo(14, -10);
+  ctx.lineTo(16, 2);
+  ctx.lineTo(0, 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function traveler(x, y, s, flick, crouched) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s * 1.15, s * 1.15 * (crouched ? 0.68 : 1));
+  ctx.rotate(flick * 0.4);
+  ctx.fillStyle = "rgba(40, 70, 50, 0.2)";
+  ctx.beginPath();
+  ctx.ellipse(3, 6, 14, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f6f1e6";
+  ctx.beginPath();
+  ctx.moveTo(0, 4);
+  ctx.lineTo(13, -20);
+  ctx.lineTo(0, -34);
+  ctx.lineTo(-13, -20);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#e07a8a";
+  ctx.fillRect(-9, -24, 18, 5);
+  ctx.fillStyle = "#f3d3ae";
+  ctx.beginPath();
+  ctx.arc(0, -40, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawRiver(t, w, h) {
+  const night = ctx.createLinearGradient(0, 0, 0, h);
+  night.addColorStop(0, "#07131c");
+  night.addColorStop(0.55, "#10283a");
+  night.addColorStop(1, "#1a4254");
+  ctx.fillStyle = night;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = "#f4e7c8";
+  ctx.beginPath();
+  ctx.arc(w * 0.16, h * 0.16, 26, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f4e7c8";
+  for (let i = 0; i < 7; i++) {
+    ctx.globalAlpha = 0.22 - i * 0.025;
+    ctx.beginPath();
+    ctx.ellipse(w * 0.16, h * (0.26 + i * 0.07), 14 - i, 3.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  function at(z, laneOffset) {
+    const depth = Math.pow(clamp(z, 0, 1), 0.88);
+    const s = lerp(0.22, 1, depth);
+    return { x: w / 2 + laneOffset * w * 0.2 * s, y: lerp(h * 0.3, h * 0.8, depth), s };
+  }
+
+  for (const side of [-1, 0, 1]) {
+    ctx.beginPath();
+    const nearL = at(1, side - 0.42);
+    const nearR = at(1, side + 0.42);
+    const farR = at(0.05, side + 0.42);
+    const farL = at(0.05, side - 0.42);
+    ctx.moveTo(nearL.x, nearL.y);
+    ctx.lineTo(nearR.x, nearR.y);
+    ctx.lineTo(farR.x, farR.y);
+    ctx.lineTo(farL.x, farL.y);
+    ctx.closePath();
+    ctx.fillStyle = side === 0 ? "rgba(24, 70, 92, 0.45)" : "rgba(10, 32, 48, 0.35)";
+    ctx.fill();
+  }
+  ctx.strokeStyle = "rgba(227, 177, 90, 0.8)";
+  ctx.lineWidth = 1.6;
+  for (const edge of [-1, -0.33, 0.33, 1]) {
+    ctx.beginPath();
+    for (let i = 0; i <= 24; i++) {
+      const p = at(i / 24, edge);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(214, 232, 236, 0.22)";
+  for (let i = 0; i < 8; i++) {
+    const z = (i / 8 + t * 0.1) % 1;
+    const a = at(z, -1.15);
+    const b = at(z, 1.15);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+
+  reed(w * 0.07, h * 0.66, 1);
+  reed(w * 0.93, h * 0.62, -1);
+
+  const blocks = [
+    { z: (t * 0.12 + 0.25) % 1, lane: 0, kind: "coal" },
+    { z: (t * 0.12 + 0.55) % 1, lane: -1, kind: "mist" },
+    { z: (t * 0.12 + 0.8) % 1, lane: 1, kind: "coal" }
+  ].filter((item) => item.z > 0.12).sort((a, b) => a.z - b.z);
+  for (const item of blocks) {
+    const p = at(item.z, item.lane);
+    if (item.kind === "coal") coal(p.x, p.y, p.s);
+    else mist(p.x, p.y, p.s);
+  }
+
+  const boat = at(0.74, lanePos);
+  const hop = Math.sin(clamp(jump, 0, 1) * Math.PI) * 50 * boat.s;
+  paperBoat(boat.x, boat.y - hop, boat.s * 1.6, duck > 0.2, lane - lanePos);
+
+  ctx.save();
+  ctx.translate(w - 64, 36);
+  ctx.fillStyle = "#c4372f";
+  ctx.fillRect(0, 0, 28, 28);
+  ctx.strokeStyle = "#f4e6c4";
+  ctx.lineWidth = 1.4;
+  ctx.strokeRect(4, 4, 20, 20);
+  ctx.restore();
+}
+
+function reed(x, y, dir) {
+  ctx.strokeStyle = "#081018";
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 5; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x + i * 7 * dir, y + 30);
+    ctx.quadraticCurveTo(x + i * 12 * dir, y, x + (i * 16 + 12) * dir, y - 48);
+    ctx.stroke();
+  }
+}
+
+function coal(x, y, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ctx.fillStyle = "#0c1822";
+  ctx.beginPath();
+  ctx.ellipse(0, 4, 30, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#1c2c36";
+  ctx.beginPath();
+  ctx.moveTo(-20, 2);
+  ctx.lineTo(-8, -16);
+  ctx.lineTo(16, -8);
+  ctx.lineTo(20, 2);
+  ctx.fill();
+  ctx.fillStyle = "#e3b15a";
+  ctx.beginPath();
+  ctx.arc(0, -6, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function mist(x, y, s) {
+  ctx.save();
+  ctx.translate(x, y - 20 * s);
+  ctx.scale(s, s);
+  ctx.filter = "blur(8px)";
+  ctx.fillStyle = "rgba(220, 236, 238, 0.38)";
+  ctx.fillRect(-46, -18, 92, 24);
+  ctx.restore();
+}
+
+function paperBoat(x, y, s, sunk, flick) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(flick * 0.25);
+  ctx.scale(s * 1.35, s * 1.35 * (sunk ? 0.7 : 1));
+  ctx.fillStyle = "rgba(244, 230, 196, 0.16)";
+  ctx.beginPath();
+  ctx.moveTo(-6, 14);
+  ctx.lineTo(0, 64);
+  ctx.lineTo(8, 14);
+  ctx.fill();
+  ctx.fillStyle = "#f4e6c4";
+  ctx.strokeStyle = "#1a140e";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-30, 6);
+  ctx.lineTo(0, 18);
+  ctx.lineTo(30, 6);
+  ctx.lineTo(18, -10);
+  ctx.lineTo(-18, -10);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-18, -10);
+  ctx.lineTo(0, -2);
+  ctx.lineTo(18, -10);
+  ctx.stroke();
+  ctx.save();
+  ctx.filter = "blur(10px)";
+  ctx.fillStyle = "rgba(255, 176, 58, 0.8)";
+  ctx.beginPath();
+  ctx.arc(0, -20, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = "#ffb03a";
+  ctx.beginPath();
+  ctx.arc(0, -20, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+The pose model downloaded on first launch, pose_landmarker_lite.task,
+is published by Google with the MediaPipe pose landmarker models under
+the Apache License, Version 2.0.
+
+http://www.apache.org/licenses/LICENSE-2.0
